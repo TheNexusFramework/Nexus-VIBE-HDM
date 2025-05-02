@@ -1,0 +1,76 @@
+//@version=5
+indicator("Nexus VIBE HDM (High-Density Mode)", overlay=true)
+
+// === USER INPUTS === //
+// VX Contracts
+symbolVX1 = input.symbol("CBOE:VXK2025", "VX Front Month")
+symbolVX2 = input.symbol("CBOE:VXM2025", "VX 2nd Month")
+symbolVX3 = input.symbol("CBOE:VXN2025", "VX 3rd Month")
+symbolVX4 = input.symbol("CBOE:VXQ2025", "VX 4th Month")
+
+threshold1 = input.int(235, "Volume Threshold VX1")
+threshold2 = input.int(136, "Volume Threshold VX2")
+threshold3 = input.int(81,  "Volume Threshold VX3")
+threshold4 = input.int(49,  "Volume Threshold VX4")
+
+spikeAgreement = input.int(2, "Min VX Contracts Aligned", minval=1, maxval=4)
+
+// Additional Confirmation Toggles
+confirmWithSPY  = input.bool(true, "Require SPY Volume Spike")
+spySymbol       = input.symbol("AMEX:SPY", "SPY Symbol")
+spyThreshold    = input.int(120000, "SPY Volume Threshold")
+
+confirmWithQQQ  = input.bool(true, "Require QQQ Volume Spike")
+qqqSymbol       = input.symbol("NASDAQ:QQQ", "QQQ Symbol")
+qqqThreshold    = input.int(115000, "QQQ Volume Threshold")
+
+confirmWithUVXY = input.bool(true, "Require UVXY Volume Spike")
+uvxySymbol      = input.symbol("AMEX:UVXY", "UVXY Symbol")
+uvxyThreshold   = input.int(19000, "UVXY Volume Threshold")
+
+// MUTE SESSION WINDOWS
+muteOpenMins  = input.int(25, "Mute NY Open (min)")
+muteCloseMins = input.int(15, "Mute NY Close (min)")
+
+// === TIME FILTER === //
+isAllowedTF = timeframe.period == "1" or
+              timeframe.period == "45S" or
+              timeframe.period == "30S" or
+              timeframe.period == "20S" or
+              timeframe.period == "15S" or
+              timeframe.period == "10S" or
+              timeframe.period == "5S" or
+              timeframe.period == "1S"
+
+// === MUTE SESSION LOGIC === //
+isNewYork     = syminfo.timezone == "America/New_York"
+sessStart     = timestamp("America/New_York", year, month, dayofmonth, 9, 30)
+sessEnd       = timestamp("America/New_York", year, month, dayofmonth, 16, 0)
+inMuteWindow  = isNewYork and (time >= sessStart and time <= sessStart + muteOpenMins * 60000 or time >= sessEnd - muteCloseMins * 60000)
+
+// === FETCH DATA — LOCKED TO 30S === //
+vx1    = request.security(symbolVX1, "30S", volume, lookahead=barmerge.lookahead_on)
+vx2    = request.security(symbolVX2, "30S", volume, lookahead=barmerge.lookahead_on)
+vx3    = request.security(symbolVX3, "30S", volume, lookahead=barmerge.lookahead_on)
+vx4    = request.security(symbolVX4, "30S", volume, lookahead=barmerge.lookahead_on)
+spyVol = request.security(spySymbol,  "30S", volume, lookahead=barmerge.lookahead_on)
+qqqVol = request.security(qqqSymbol,  "30S", volume, lookahead=barmerge.lookahead_on)
+uvxyVol = request.security(uvxySymbol, "30S", volume, lookahead=barmerge.lookahead_on)
+
+// === TRIGGER LOGIC === //
+vxSpike1 = vx1 >= threshold1
+vxSpike2 = vx2 >= threshold2
+vxSpike3 = vx3 >= threshold3
+vxSpike4 = vx4 >= threshold4
+
+totalVXSpikes = (vxSpike1 ? 1 : 0) + (vxSpike2 ? 1 : 0) + (vxSpike3 ? 1 : 0) + (vxSpike4 ? 1 : 0)
+vxQualified = totalVXSpikes >= spikeAgreement
+
+spyQualified  = not confirmWithSPY  or (spyVol >= spyThreshold)
+qqqQualified  = not confirmWithQQQ  or (qqqVol >= qqqThreshold)
+uvxyQualified = not confirmWithUVXY or (uvxyVol >= uvxyThreshold)
+
+plotSignal = vxQualified and spyQualified and qqqQualified and uvxyQualified and not inMuteWindow
+
+// === PLOTS === //
+plotshape(plotSignal and isAllowedTF, style=shape.diamond, location=location.belowbar, size=size.normal, color=color.new(#ff5f00, 70), title="VIBE HDM")
